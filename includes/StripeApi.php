@@ -1,19 +1,14 @@
 <?php
-namespace ClinicBooking;
+namespace BookingDepositsForStripe;
 
 if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
 /**
- * Very small helper to talk to the Stripe API.
- * The secret key lives in wp-config.php:  define( 'CB_STRIPE_SECRET_KEY', 'sk_test_...' );
+ * Very small helper to talk to the Stripe API (https://api.stripe.com).
  */
 class StripeApi {
-
-	private static function key() {
-		return defined( 'CB_STRIPE_SECRET_KEY' ) ? CB_STRIPE_SECRET_KEY : '';
-	}
 
 	private static function result( $response ) {
 		if ( is_wp_error( $response ) ) {
@@ -23,39 +18,31 @@ class StripeApi {
 		$body = json_decode( wp_remote_retrieve_body( $response ), true );
 		if ( $code >= 400 ) {
 			$msg = isset( $body['error']['message'] ) ? $body['error']['message'] : 'Stripe error ' . $code;
-			return new \WP_Error( 'stripe_error', $msg );
+			return new \WP_Error( 'bdfs_stripe_error', $msg );
 		}
 		return $body;
 	}
 
-	public static function post( $endpoint, $params ) {
-		if ( ! self::key() ) {
-			return new \WP_Error( 'no_key', 'Stripe key is missing in wp-config.php' );
-		}
-		return self::result(
-			wp_remote_post(
-				'https://api.stripe.com/v1/' . $endpoint,
-				array(
-					'headers' => array( 'Authorization' => 'Bearer ' . self::key() ),
-					'body'    => $params,
-					'timeout' => 30,
-				)
-			)
+	private static function args() {
+		return array(
+			'headers' => array( 'Authorization' => 'Bearer ' . Settings::secret_key() ),
+			'timeout' => 30,
 		);
 	}
 
-	public static function get( $endpoint ) {
-		if ( ! self::key() ) {
-			return new \WP_Error( 'no_key', 'Stripe key is missing in wp-config.php' );
+	public static function post( $endpoint, $params ) {
+		if ( ! Settings::is_ready() ) {
+			return new \WP_Error( 'bdfs_no_key', 'Stripe secret key is missing.' );
 		}
-		return self::result(
-			wp_remote_get(
-				'https://api.stripe.com/v1/' . $endpoint,
-				array(
-					'headers' => array( 'Authorization' => 'Bearer ' . self::key() ),
-					'timeout' => 30,
-				)
-			)
-		);
+		$args         = self::args();
+		$args['body'] = $params;
+		return self::result( wp_remote_post( 'https://api.stripe.com/v1/' . $endpoint, $args ) );
+	}
+
+	public static function get( $endpoint ) {
+		if ( ! Settings::is_ready() ) {
+			return new \WP_Error( 'bdfs_no_key', 'Stripe secret key is missing.' );
+		}
+		return self::result( wp_remote_get( 'https://api.stripe.com/v1/' . $endpoint, self::args() ) );
 	}
 }

@@ -1,5 +1,5 @@
 <?php
-namespace ClinicBooking;
+namespace BookingDepositsForStripe;
 
 if ( ! defined( 'ABSPATH' ) ) {
 	exit;
@@ -12,33 +12,59 @@ class Emails {
 			return;
 		}
 
-		$site      = get_bloginfo( 'name' );
-		$date      = wp_date( 'l, j F Y', strtotime( $booking->booking_date ) );
-		$remaining = BookingForm::FEE - (int) $booking->deposit_amount;
+		$site      = wp_specialchars_decode( get_bloginfo( 'name' ), ENT_QUOTES );
+		$date      = wp_date( get_option( 'date_format' ), strtotime( $booking->booking_date ) );
+		$deposit   = Money::format( (int) $booking->deposit_minor, $booking->currency );
+		$remaining = Money::format( max( 0, (int) $booking->fee_minor - (int) $booking->deposit_minor ), $booking->currency );
 
 		// 1. Email to the customer.
-		$subject = 'Your appointment is confirmed - ' . $site;
-		$message = "Hello {$booking->name},\n\n"
-			. "Thank you. Your appointment is confirmed.\n\n"
-			. "Date: {$date}\n"
-			. "Time: {$booking->booking_time}\n"
-			. 'Deposit paid: Rs ' . number_format( $booking->deposit_amount ) . "\n"
-			. 'Pay at the clinic: Rs ' . number_format( $remaining ) . "\n\n"
-			. "Booking number: #{$booking->id}\n\n"
-			. "See you soon,\n{$site}";
+		/* translators: %s: site name. */
+		$subject = sprintf( __( 'Your appointment is confirmed - %s', 'booking-deposits-for-stripe' ), $site );
 
-		wp_mail( $booking->email, $subject, $message );
+		$lines = array(
+			/* translators: %s: customer name. */
+			sprintf( __( 'Hello %s,', 'booking-deposits-for-stripe' ), $booking->name ),
+			'',
+			__( 'Thank you. Your appointment is confirmed.', 'booking-deposits-for-stripe' ),
+			'',
+			/* translators: %s: date. */
+			sprintf( __( 'Date: %s', 'booking-deposits-for-stripe' ), $date ),
+			/* translators: %s: time, for example 10:00. */
+			sprintf( __( 'Time: %s', 'booking-deposits-for-stripe' ), $booking->booking_time ),
+			/* translators: %s: amount. */
+			sprintf( __( 'Deposit paid: %s', 'booking-deposits-for-stripe' ), $deposit ),
+			/* translators: %s: amount. */
+			sprintf( __( 'Left to pay at your visit: %s', 'booking-deposits-for-stripe' ), $remaining ),
+			'',
+			/* translators: %d: booking number. */
+			sprintf( __( 'Booking number: #%d', 'booking-deposits-for-stripe' ), $booking->id ),
+			'',
+			$site,
+		);
+
+		wp_mail( $booking->email, $subject, implode( "\n", $lines ) );
 
 		// 2. Email to the site owner.
-		$admin_subject = "New confirmed booking #{$booking->id}";
-		$admin_message = "Name: {$booking->name}\n"
-			. "Email: {$booking->email}\n"
-			. "Phone: {$booking->phone}\n"
-			. "Date: {$date}\n"
-			. "Time: {$booking->booking_time}\n"
-			. 'Deposit paid: Rs ' . number_format( $booking->deposit_amount ) . "\n\n"
-			. 'All bookings: ' . admin_url( 'admin.php?page=cb-bookings' );
+		/* translators: %d: booking number. */
+		$admin_subject = sprintf( __( 'New confirmed booking #%d', 'booking-deposits-for-stripe' ), $booking->id );
 
-		wp_mail( get_option( 'admin_email' ), $admin_subject, $admin_message );
+		$admin_lines = array(
+			/* translators: %s: customer name. */
+			sprintf( __( 'Name: %s', 'booking-deposits-for-stripe' ), $booking->name ),
+			/* translators: %s: customer email. */
+			sprintf( __( 'Email: %s', 'booking-deposits-for-stripe' ), $booking->email ),
+			/* translators: %s: customer phone. */
+			sprintf( __( 'Phone: %s', 'booking-deposits-for-stripe' ), $booking->phone ),
+			/* translators: %s: date. */
+			sprintf( __( 'Date: %s', 'booking-deposits-for-stripe' ), $date ),
+			/* translators: %s: time. */
+			sprintf( __( 'Time: %s', 'booking-deposits-for-stripe' ), $booking->booking_time ),
+			/* translators: %s: amount. */
+			sprintf( __( 'Deposit paid: %s', 'booking-deposits-for-stripe' ), $deposit ),
+			'',
+			admin_url( 'admin.php?page=bdfs-bookings' ),
+		);
+
+		wp_mail( get_option( 'admin_email' ), $admin_subject, implode( "\n", $admin_lines ) );
 	}
 }

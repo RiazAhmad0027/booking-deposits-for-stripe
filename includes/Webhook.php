@@ -1,5 +1,5 @@
 <?php
-namespace ClinicBooking;
+namespace BookingDepositsForStripe;
 
 if ( ! defined( 'ABSPATH' ) ) {
 	exit;
@@ -9,8 +9,7 @@ if ( ! defined( 'ABSPATH' ) ) {
  * Stripe webhook: Stripe tells us about payments even if the customer
  * closes the browser before coming back to our site.
  *
- * Address: /wp-json/clinic-booking/v1/stripe-webhook
- * Secret in wp-config.php: define( 'CB_STRIPE_WEBHOOK_SECRET', 'whsec_...' );
+ * Address: /wp-json/booking-deposits-for-stripe/v1/stripe-webhook
  */
 class Webhook {
 
@@ -22,22 +21,21 @@ class Webhook {
 
 	public function route() {
 		register_rest_route(
-			'clinic-booking/v1',
+			'booking-deposits-for-stripe/v1',
 			'/stripe-webhook',
 			array(
 				'methods'             => 'POST',
 				'callback'            => array( $this, 'handle' ),
-				'permission_callback' => '__return_true', // Security = the signature check below.
+				'permission_callback' => '__return_true', // Public on purpose: security is the Stripe signature check.
 			)
 		);
 	}
 
 	public function handle( \WP_REST_Request $request ) {
-		$payload   = $request->get_body();
-		$signature = $request->get_header( 'stripe_signature' );
+		$payload = $request->get_body();
 
-		if ( ! $this->verify( $payload, $signature ) ) {
-			error_log( 'Clinic Booking webhook: bad signature' );
+		if ( ! $this->verify( $payload, (string) $request->get_header( 'stripe_signature' ) ) ) {
+			Log::write( 'webhook: bad signature' );
 			return new \WP_REST_Response( array( 'error' => 'bad signature' ), 400 );
 		}
 
@@ -45,24 +43,21 @@ class Webhook {
 		$type    = $event['type'] ?? '';
 		$session = $event['data']['object'] ?? array();
 
-		error_log( 'Clinic Booking webhook: ' . $type );
-
 		$booking = isset( $session['id'] ) ? Booking::find_by_session( $session['id'] ) : null;
 
 		// Extra check: the booking number saved in Stripe must match our row.
-		if ( $booking && (int) ( $session['metadata']['booking_id'] ?? 0 ) !== (int) $booking->id ) {
+		if ( $booking && (int) ( $session['metadata']['bdfs_booking_id'] ?? 0 ) !== (int) $booking->id ) {
 			$booking = null;
 		}
 
 		if ( $booking ) {
 			if ( 'checkout.session.completed' === $type && 'paid' === ( $session['payment_status'] ?? '' ) ) {
 				Booking::confirm( $booking->id );
-				error_log( 'Clinic Booking webhook: booking #' . $booking->id . ' confirmed' );
+				Log::write( 'webhook: booking #' . $booking->id . ' confirmed' );
 			}
-
 			if ( 'checkout.session.expired' === $type ) {
 				Booking::cancel( $booking->id, true ); // Only if still unpaid.
-				error_log( 'Clinic Booking webhook: booking #' . $booking->id . ' expired' );
+				Log::write( 'webhook: booking #' . $booking->id . ' expired' );
 			}
 		}
 
@@ -71,7 +66,8 @@ class Webhook {
 	}
 
 	private function verify( $payload, $header ) {
-		if ( ! defined( 'CB_STRIPE_WEBHOOK_SECRET' ) || ! $header ) {
+		$secret = Settings::webhook_secret();
+		if ( '' === $secret || '' === $header ) {
 			return false;
 		}
 
@@ -93,7 +89,7 @@ class Webhook {
 			return false;
 		}
 
-		$expected = hash_hmac( 'sha256', $timestamp . '.' . $payload, CB_STRIPE_WEBHOOK_SECRET );
+		$expected = hash_hmac( 'sha256', $timestamp . '.' . $payload, $secret );
 
 		foreach ( $signatures as $sig ) {
 			if ( hash_equals( $expected, $sig ) ) {
