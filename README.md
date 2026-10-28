@@ -1,4 +1,6 @@
-# Booking Deposits for Stripe
+## RiazAhmad Booking Deposits for Stripe
+
+**Now live on WordPress.org:** https://wordpress.org/plugins/riazahmad-booking-deposits-for-stripe/
 
 A WordPress plugin for appointment booking with a deposit paid through Stripe Checkout. Built from scratch in PHP, with no third-party booking plugin.
 
